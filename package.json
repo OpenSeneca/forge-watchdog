@@ -1,0 +1,34 @@
+{
+  "name": "forge-watchdog",
+  "version": "1.0.0",
+  "description": "Monitors forge server connectivity and auto-deploys Squad Dashboard when forge comes online",
+  "main": "forge-watchdog.sh",
+  "scripts": {
+    "start": "./forge-watchdog.sh daemon",
+    "check": "./forge-watchdog.sh check",
+    "status": "./forge-watchdog.sh status",
+    "install-cron": "./install-cron.sh"
+  },
+  "keywords": [
+    "forge",
+    "watchdog",
+    "monitoring",
+    "deployment",
+    "auto-deploy",
+    "cron",
+    "daemon"
+  ],
+  "author": "Archimedes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenSeneca/forge-watchdog"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ]
+}

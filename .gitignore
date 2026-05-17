@@ -1,0 +1,13 @@
+# Forge Watchdog - Git Ignore
+
+# Logs
+*.log
+cron.log
+deploy.log
+
+# Status
+status.json
+
+# OS
+.DS_Store
+Thumbs.db
