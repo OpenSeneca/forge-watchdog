@@ -64,7 +64,12 @@ State is persisted in:
 
 ## Cron Job
 
-To run continuously as a daemon, add to crontab:
+To run continuously as a daemon, use the install script:
+```bash
+bash install-cron.sh
+```
+
+Or manually add to crontab:
 ```bash
 */5 * * * * cd /home/exedev/.openclaw/workspace/tools/forge-watchdog && /usr/bin/python3 main.py --watch >> /dev/null 2>&1
 ```

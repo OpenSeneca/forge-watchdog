@@ -1,36 +1,51 @@
 #!/bin/bash
-
 # Install Forge Watchdog as a cron job
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WATCHDOG_SCRIPT="$SCRIPT_DIR/forge-watchdog.sh"
-CRON_INTERVAL=${1:-"*/15 * * * *"}  # Default: every 15 minutes
+WATCHDOG_DIR="/home/exedev/.openclaw/workspace/tools/forge-watchdog"
+CRON_ENTRY="*/5 * * * * cd $WATCHDOG_DIR && /usr/bin/python3 main.py --watch >> /dev/null 2>&1"
 
-echo "Installing Forge Watchdog cron job..."
-echo "Interval: $CRON_INTERVAL"
-echo "Script: $WATCHDOG_SCRIPT"
+echo "Installing Forge Watchdog as a cron job..."
 echo ""
 
-# Check if script exists
-if [[ ! -f "$WATCHDOG_SCRIPT" ]]; then
-  echo "Error: forge-watchdog.sh not found in $SCRIPT_DIR"
-  exit 1
+# Check if watchdog directory exists
+if [ ! -d "$WATCHDOG_DIR" ]; then
+    echo "ERROR: Forge Watchdog directory not found: $WATCHDOG_DIR"
+    exit 1
 fi
 
-# Add cron job
-(crontab -l 2>/dev/null | grep -v "forge-watchdog"; echo "$CRON_INTERVAL $WATCHDOG_SCRIPT check >> $SCRIPT_DIR/cron.log 2>&1") | crontab -
+# Check if cron entry already exists
+if crontab -l 2>/dev/null | grep -q "forge-watchdog"; then
+    echo "Forge Watchdog cron entry already exists."
+    echo ""
+    echo "Current cron entry:"
+    crontab -l 2>/dev/null | grep "forge-watchdog"
+    echo ""
+    read -p "Replace existing entry? (y/N): " replace
+    if [ "$replace" != "y" ]; then
+        echo "Installation cancelled."
+        exit 0
+    fi
 
-echo "✓ Cron job installed"
+    # Remove existing entry
+    crontab -l 2>/dev/null | grep -v "forge-watchdog" | crontab -
+fi
+
+# Add new cron entry
+(crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
+
+echo "✅ Forge Watchdog installed as cron job"
 echo ""
-echo "Crontab entry:"
-crontab -l | grep "forge-watchdog"
+echo "Cron entry:"
+echo "  $CRON_ENTRY"
 echo ""
-echo "Logs:"
-echo "  Watchdog: $SCRIPT_DIR/forge-watchdog.log"
-echo "  Cron: $SCRIPT_DIR/cron.log"
+echo "The watchdog will now run every 5 minutes."
+echo "Logs are stored in: ~/.openclaw/workspace/memory/forge-watchdog-YYYY-MM-DD.log"
 echo ""
-echo "To remove cron job:"
+echo "To view logs:"
+echo "  tail -f ~/.openclaw/workspace/memory/forge-watchdog-$(date +%Y-%m-%d).log"
+echo ""
+echo "To stop the watchdog, edit crontab:"
 echo "  crontab -e"
-echo "  Delete the line containing 'forge-watchdog'"
+echo "  # Remove the forge-watchdog line"
