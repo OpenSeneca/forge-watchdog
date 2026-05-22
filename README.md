@@ -1,81 +1,121 @@
 # Forge Watchdog
 
-Monitors Forge server connectivity and auto-deploys the Squad Dashboard when it comes back online.
+Monitors Forge connectivity and automatically deploys Squad Dashboard when Forge comes back online.
 
-## Problem
+## Problem Solved
 
-Forge server (100.93.69.117) has been offline for 15+ days. The Squad Dashboard v1.0.0 is ready to deploy but requires Forge to be accessible.
+Forge has been offline for 15+ days due to network/host issues. Manual monitoring and deployment is time-consuming. Forge Watchdog automates the recovery process.
 
-## Solution
+## Features
 
-This tool:
-- Monitors Forge connectivity via ping and SSH
-- Automatically deploys Squad Dashboard when Forge comes online
-- Logs all uptime/downtime events
-- Can run as a daemon for continuous monitoring
+- **Ping monitoring** - Checks if Forge host is reachable
+- **SSH monitoring** - Verifies SSH authentication is working
+- **State tracking** - Remembers Forge's last state (online/offline)
+- **Auto-deployment** - Deploys Squad Dashboard when Forge recovers
+- **Event logging** - Logs all events with timestamps
+- **Watch mode** - Continuous monitoring daemon
+- **Cron integration** - Scheduled checks every 15 minutes
+
+## Installation
+
+```bash
+cd ~/.openclaw/workspace/tools/forge-watchdog
+./forge-watchdog.sh install
+```
+
+This adds a cron job that runs every 15 minutes.
 
 ## Usage
 
 ```bash
-# Check current status
-python3 main.py --check
+# One-time check
+./forge-watchdog.sh check
 
-# Force deployment attempt (if reachable)
-python3 main.py --deploy
+# Show current status
+./forge-watchdog.sh status
 
-# Run in watch mode (daemon) - checks every 5 minutes
-python3 main.py --watch
+# Run in continuous watch mode (daemon)
+./forge-watchdog.sh watch
 
-# Watch mode with custom interval (e.g., every 60 seconds)
-python3 main.py --watch --interval 60
+# Install/verify cron job
+./forge-watchdog.sh install
 ```
 
-## Features
+## How It Works
 
-- **Connectivity checking**: Ping and SSH tests
-- **Auto-deployment**: Deploys Squad Dashboard when Forge is reachable
-- **State persistence**: Remembers last online time and deployment status
-- **Event logging**: Logs all events to memory/forge-watchdog-YYYY-MM-DD.log
-- **Configurable intervals**: Adjust check frequency as needed
+1. **Check Phase** - Runs ping and SSH tests to Forge
+2. **State Comparison** - Compares current state with last known state
+3. **Recovery Detection** - If Forge was offline and is now online:
+   - Logs recovery event
+   - Deploys Squad Dashboard via git clone/pull
+4. **State Update** - Saves current state for next check
 
-## Deployment
+## State Machine
 
-The tool deploys the Squad Dashboard from:
-- Source: `/home/exedev/.openclaw/workspace/tools/squad-dashboard/`
-- Target: `/var/www/html/dashboard` on Forge
+```
+unknown ──► offline ──► online ◄────┐
+   │           │          │       │
+   └───────────┴──────────┴───────┘
+```
+
+## Files
+
+- `forge-watchdog.sh` - Main script
+- `watchdog.log` - Event log with timestamps
+- `.state` - Current Forge state (offline/online)
+- `cron.log` - Cron execution log
+- `.lock` - Prevents multiple instances
+
+## Dashboard Deployment
+
+When Forge comes online, the watchdog:
+
+1. Checks if `squad-dashboard` exists on Forge
+2. If yes: Runs `git pull origin main`
+3. If no: Clones from `https://github.com/OpenSeneca/squad-dashboard.git`
 
 ## Requirements
 
-- SSH key deployed to Forge (use `squad-ssh-key-deployer`)
-- SSH access to Forge server
-- Write permissions on Forge's web directory
+- SSH access to Forge (exedev@forge)
+- Git access to OpenSeneca GitHub repo
+- Bash shell
 
 ## Monitoring
 
-The tool creates a log file at:
-```
-~/.openclaw/workspace/memory/forge-watchdog-YYYY-MM-DD.log
-```
-
-State is persisted in:
-```
-~/.openclaw/forge-watchdog-state.json
-```
-
-## Cron Job
-
-To run continuously as a daemon, use the install script:
 ```bash
-bash install-cron.sh
+# Watch logs in real-time
+tail -f ~/.openclaw/workspace/tools/forge-watchdog/watchdog.log
+
+# Check cron execution logs
+tail -f ~/.openclaw/workspace/tools/forge-watchdog/cron.log
+
+# View current state
+cat ~/.openclaw/workspace/tools/forge-watchdog/.state
 ```
 
-Or manually add to crontab:
-```bash
-*/5 * * * * cd /home/exedev/.openclaw/workspace/tools/forge-watchdog && /usr/bin/python3 main.py --watch >> /dev/null 2>&1
-```
+## Troubleshooting
 
-## Status
+**Issue: Watchdog always reports offline**
+- Check network connectivity: `ping forge`
+- Verify SSH access: `ssh exedev@forge echo test`
 
-- Created: 2026-05-18
-- Status: Ready for deployment
-- Deployed to: OpenSeneca/forge-watchdog (pending)
+**Issue: Dashboard deployment fails**
+- Check GitHub repo exists and is accessible
+- Verify Forge has git installed: `ssh exedev@forge "git --version"`
+- Check watchdog.log for detailed error messages
+
+**Issue: Cron job not running**
+- Verify crontab entry: `crontab -l | grep forge-watchdog`
+- Check cron logs: `tail -f ~/.openclaw/workspace/tools/forge-watchdog/cron.log`
+
+## Version History
+
+- **1.0.0** - Initial release with ping/SSH monitoring, state tracking, auto-deployment
+
+## License
+
+MIT
+
+## Author
+
+Archimedes (Engineering) - OpenSeneca Squad

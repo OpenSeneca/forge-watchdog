@@ -1,212 +1,232 @@
 #!/bin/bash
-
-# Forge Watchdog - Monitors forge connectivity and auto-deploys Squad Dashboard
+# Forge Watchdog - Monitors Forge connectivity and auto-deploys Squad Dashboard
+# Version: 1.0.0
+# Author: Archimedes (Engineering)
+# License: MIT
 
 set -e
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Configuration
+FORGE_HOST="forge"
+FORGE_IP="100.93.69.117"
+SQUAD_DASHBOARD_REPO="/home/exedev/workspace/tools/squad-dashboard"
+LOG_FILE="/home/exedev/.openclaw/workspace/tools/forge-watchdog/watchdog.log"
+STATE_FILE="/home/exedev/.openclaw/workspace/tools/forge-watchdog/.state"
+LOCK_FILE="/home/exedev/.openclaw/workspace/tools/forge-watchdog/.lock"
+PING_TIMEOUT=2
+SSH_TIMEOUT=5
 
-# Load configuration
-if [[ -f "$SCRIPT_DIR/config.sh" ]]; then
-  source "$SCRIPT_DIR/config.sh"
-else
-  echo "Error: config.sh not found in $SCRIPT_DIR"
-  exit 1
-fi
-
-# Full paths
-LOG_FILE="$SCRIPT_DIR/$LOG_FILE"
-STATUS_FILE="$SCRIPT_DIR/$STATUS_FILE"
-DASHBOARD_DIR="$SCRIPT_DIR/$DASHBOARD_DIR"
-
-# Color codes for output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Create directories if needed
+mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$(dirname "$STATE_FILE")"
+mkdir -p "$(dirname "$LOCK_FILE")"
+
 # Logging function
 log() {
-  local level="$1"
-  shift
-  local message="$@"
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+    echo "[${timestamp}] [${level}] ${message}" | tee -a "$LOG_FILE"
 }
 
-# Send notification
-notify() {
-  local subject="$1"
-  local body="$2"
+# Check if Forge is reachable
+check_ping() {
+    ping -c 1 -W "$PING_TIMEOUT" "$FORGE_HOST" &>/dev/null
+    return $?
+}
 
-  if [[ "$ENABLE_NOTIFICATIONS" == "true" ]]; then
-    if command -v "$NOTIFICATION_CMD" &> /dev/null; then
-      echo "$body" | $NOTIFICATION_CMD -s "$subject"
-      log "INFO" "Notification sent: $subject"
+# Check if SSH is accessible
+check_ssh() {
+    ssh -o ConnectTimeout="$SSH_TIMEOUT" -o BatchMode=yes exedev@"$FORGE_HOST" "echo OK" &>/dev/null
+    return $?
+}
+
+# Get current state
+get_state() {
+    if [ -f "$STATE_FILE" ]; then
+        cat "$STATE_FILE"
     else
-      log "WARN" "Notification command not found: $NOTIFICATION_CMD"
+        echo "unknown"
     fi
-  fi
 }
 
-# Update status file
-update_status() {
-  local key="$1"
-  local value="$2"
-
-  if [[ -f "$STATUS_FILE" ]]; then
-    # Update existing status
-    jq -e ".$key = \"$value\"" "$STATUS_FILE" > "$STATUS_FILE.tmp" 2>/dev/null || echo "{\"$key\":\"$value\"}" > "$STATUS_FILE.tmp"
-  else
-    # Create new status
-    echo "{\"$key\":\"$value\"}" > "$STATUS_FILE.tmp"
-  fi
-
-  mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+# Set state
+set_state() {
+    local state="$1"
+    echo "$state" > "$STATE_FILE"
+    log "STATE" "Forge state changed to: $state"
 }
 
-# Initialize status file
-init_status() {
-  if [[ ! -f "$STATUS_FILE" ]]; then
-    cat > "$STATUS_FILE" << EOF
-{
-  "last_check": "never",
-  "last_online": "never",
-  "last_deploy": "never",
-  "deploy_count": 0,
-  "consecutive_offline": 0
-}
-EOF
-  fi
-}
-
-# Check forge connectivity
-check_forge() {
-  log "INFO" "Checking forge connectivity to $FORGE_HOST..."
-
-  if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no \
-      -o BatchMode=yes \
-      ${FORGE_USER}@${FORGE_HOST} "echo 'Forge is accessible'" 2>/dev/null; then
-    update_status "last_online" "$(date -Iseconds)"
-    return 0
-  else
-    return 1
-  fi
-}
-
-# Deploy Squad Dashboard
+# Deploy Squad Dashboard to Forge
 deploy_dashboard() {
-  log "INFO" "Deploying Squad Dashboard to forge..."
+    log "DEPLOY" "Starting Squad Dashboard deployment to Forge..."
 
-  if [[ ! -d "$DASHBOARD_DIR" ]]; then
-    log "ERROR" "Dashboard directory not found: $DASHBOARD_DIR"
-    return 1
-  fi
+    if [ ! -d "$SQUAD_DASHBOARD_REPO" ]; then
+        log "ERROR" "Squad Dashboard repository not found at $SQUAD_DASHBOARD_REPO"
+        return 1
+    fi
 
-  cd "$DASHBOARD_DIR"
+    # Clone or update the dashboard on Forge
+    if ssh -o ConnectTimeout="$SSH_TIMEOUT" exedev@"$FORGE_HOST" "[ -d squad-dashboard ]"; then
+        log "DEPLOY" "Updating existing Squad Dashboard on Forge..."
+        ssh -o ConnectTimeout="$SSH_TIMEOUT" exedev@"$FORGE_HOST" "cd squad-dashboard && git pull origin main" || {
+            log "ERROR" "Failed to update Squad Dashboard"
+            return 1
+        }
+    else
+        log "DEPLOY" "Cloning Squad Dashboard to Forge..."
+        ssh -o ConnectTimeout="$SSH_TIMEOUT" exedev@"$FORGE_HOST" "git clone https://github.com/OpenSeneca/squad-dashboard.git" || {
+            log "ERROR" "Failed to clone Squad Dashboard"
+            return 1
+        }
+    fi
 
-  # Check if deploy script exists
-  if [[ ! -f "deploy-to-forge.sh" ]]; then
-    log "ERROR" "deploy-to-forge.sh not found in $DASHBOARD_DIR"
-    return 1
-  fi
+    log "SUCCESS" "Squad Dashboard deployed to Forge successfully"
+    return 0
+}
 
-  # Run deployment
-  if ./deploy-to-forge.sh > "$SCRIPT_DIR/deploy.log" 2>&1; then
-    log "INFO" "Deployment successful"
-    update_status "last_deploy" "$(date -Iseconds)"
+# Main check function
+check_forge() {
+    log "CHECK" "Checking Forge connectivity..."
 
-    # Increment deploy count
-    local count=$(jq -r '.deploy_count // 0' "$STATUS_FILE")
-    update_status "deploy_count" $((count + 1))
+    # Check ping
+    if check_ping; then
+        log "CHECK" "Ping OK - Forge is reachable"
+    else
+        log "WARN" "Ping FAILED - Forge is unreachable"
+        set_state "offline"
+        return 1
+    fi
 
-    # Reset consecutive offline counter
-    update_status "consecutive_offline" "0"
+    # Check SSH
+    if check_ssh; then
+        log "CHECK" "SSH OK - Authentication successful"
+    else
+        log "WARN" "SSH FAILED - Authentication failed or SSH not running"
+        set_state "ssh-unavailable"
+        return 1
+    fi
 
-    notify "✅ Forge Watchdog: Dashboard Deployed" \
-      "Squad Dashboard v2 has been successfully deployed to forge ($FORGE_HOST)."
+    # If we're here, Forge is online
+    local current_state=$(get_state)
+
+    if [ "$current_state" = "online" ]; then
+        log "CHECK" "Forge is still online - no action needed"
+        return 0
+    fi
+
+    # Forge just came online!
+    log "ALERT" "Forge is ONLINE! (was $current_state)"
+    set_state "online"
+
+    # Auto-deploy dashboard
+    if deploy_dashboard; then
+        log "SUCCESS" "Forge recovery complete - Squad Dashboard deployed"
+    else
+        log "ERROR" "Forge recovery incomplete - Dashboard deployment failed"
+    fi
 
     return 0
-  else
-    log "ERROR" "Deployment failed. Check $SCRIPT_DIR/deploy.log for details."
-    notify "❌ Forge Watchdog: Deployment Failed" \
-      "Failed to deploy Squad Dashboard to forge. Check $SCRIPT_DIR/deploy.log for details."
-    return 1
-  fi
 }
 
-# Check mode
-check_mode() {
-  init_status
-  update_status "last_check" "$(date -Iseconds)"
+# Watch mode - run continuously
+watch_mode() {
+    log "WATCH" "Starting watch mode (checking every 60 seconds)"
+    log "WATCH" "Press Ctrl+C to stop"
 
-  if check_forge; then
-    log "INFO" "✓ Forge is online"
-    echo -e "${GREEN}✓ Forge is online${NC}"
+    trap "log 'WATCH' 'Watch mode stopped'; exit 0" INT TERM
 
-    # Check if we should deploy (optional: check if dashboard needs update)
-    deploy_dashboard
-  else
-    log "WARN" "✗ Forge is offline"
-    echo -e "${RED}✗ Forge is offline${NC}"
+    while true; do
+        check_forge
+        sleep 60
+    done
+}
 
-    local count=$(jq -r '.consecutive_offline // 0' "$STATUS_FILE")
-    update_status "consecutive_offline" $((count + 1))
+# Status command
+show_status() {
+    local current_state=$(get_state)
+    local timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-    # Only notify on every 10th consecutive offline check (to avoid spam)
-    if (( count > 0 && count % 10 == 0 )); then
-      notify "⚠️ Forge Watchdog: Forge Still Offline" \
-        "Forge has been offline for $((count * CHECK_INTERVAL / 60)) minutes."
+    echo "=========================================="
+    echo "Forge Watchdog Status"
+    echo "=========================================="
+    echo "Time: $timestamp"
+    echo "State: $current_state"
+    echo "Forge Host: $FORGE_HOST ($FORGE_IP)"
+    echo ""
+
+    if check_ping; then
+        echo -e "${GREEN}✓ Ping: OK${NC}"
+    else
+        echo -e "${RED}✗ Ping: FAILED${NC}"
     fi
-  fi
+
+    if check_ssh; then
+        echo -e "${GREEN}✓ SSH: OK${NC}"
+    else
+        echo -e "${RED}✗ SSH: FAILED${NC}"
+    fi
+
+    echo ""
+    echo "Log: $LOG_FILE"
+    echo "State: $STATE_FILE"
+    echo "=========================================="
 }
 
-# Daemon mode
-daemon_mode() {
-  log "INFO" "Starting daemon mode (check interval: ${CHECK_INTERVAL}s)"
-  echo -e "${GREEN}Starting daemon mode...${NC}"
-  echo "Check interval: ${CHECK_INTERVAL}s"
-  echo "Log file: $LOG_FILE"
-  echo "Status file: $STATUS_FILE"
-  echo ""
-  echo "Press Ctrl+C to stop"
-  echo ""
+# Install cron job
+install_cron() {
+    local script_path=$(realpath "$0")
+    local cron_entry="*/15 * * * * $script_path check >> /home/exedev/.openclaw/workspace/tools/forge-watchdog/cron.log 2>&1"
 
-  while true; do
-    check_mode
+    log "INSTALL" "Installing cron job for Forge Watchdog..."
 
-    log "INFO" "Next check in ${CHECK_INTERVAL}s..."
-    echo -e "\n${YELLOW}Next check in ${CHECK_INTERVAL}s...${NC}"
+    # Check if already installed
+    if crontab -l 2>/dev/null | grep -q "forge-watchdog"; then
+        log "WARN" "Cron job already installed"
+        return 0
+    fi
 
-    sleep $CHECK_INTERVAL
-  done
+    # Add to crontab
+    (crontab -l 2>/dev/null; echo "$cron_entry") | crontab -
+
+    log "SUCCESS" "Cron job installed (runs every 15 minutes)"
 }
 
-# Main entry point
-case "${1:-check}" in
-  check)
-    check_mode
-    ;;
-  daemon)
-    daemon_mode
-    ;;
-  status)
-    init_status
-    cat "$STATUS_FILE" | jq '.'
-    ;;
-  *)
-    cat << EOF
-Usage: $0 {check|daemon|status}
+# Main command dispatcher
+main() {
+    local command="${1:-check}"
 
-Commands:
-  check    - Check forge connectivity and deploy if online (one-time)
-  daemon   - Run continuously, checking every ${CHECK_INTERVAL}s
-  status   - Show current status
+    case "$command" in
+        check)
+            check_forge
+            ;;
+        status)
+            show_status
+            ;;
+        watch)
+            watch_mode
+            ;;
+        install)
+            install_cron
+            ;;
+        *)
+            echo "Usage: $0 {check|status|watch|install}"
+            echo ""
+            echo "Commands:"
+            echo "  check    - Run one-time connectivity check"
+            echo "  status   - Show current status"
+            echo "  watch    - Run in continuous watch mode"
+            echo "  install  - Install cron job for automatic monitoring"
+            exit 1
+            ;;
+    esac
+}
 
-Configuration: config.sh
-Logs: $LOG_FILE
-EOF
-    exit 1
-    ;;
-esac
+main "$@"
