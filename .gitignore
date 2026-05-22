@@ -1,13 +1,19 @@
-# Forge Watchdog - Git Ignore
+# Runtime state files
+.state
+.lock
 
 # Logs
 *.log
 cron.log
-deploy.log
+watchdog.log
 
-# Status
-status.json
-
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+
+# Editor files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
