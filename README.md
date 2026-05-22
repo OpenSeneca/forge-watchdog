@@ -4,7 +4,7 @@ Monitors Forge server connectivity and auto-deploys the Squad Dashboard when it 
 
 ## Problem
 
-Forge server (100.93.69.117) has been offline for 15+ days. The Squad Dashboard v2.1.0 is ready to deploy but requires Forge to be accessible.
+Forge server (100.93.69.117) has been offline for 15+ days. The Squad Dashboard v1.0.0 is ready to deploy but requires Forge to be accessible.
 
 ## Solution
 
@@ -41,7 +41,7 @@ python3 main.py --watch --interval 60
 ## Deployment
 
 The tool deploys the Squad Dashboard from:
-- Source: `/home/exedev/.openclaw/workspace/tools/squad-dashboard-v2/`
+- Source: `/home/exedev/.openclaw/workspace/tools/squad-dashboard/`
 - Target: `/var/www/html/dashboard` on Forge
 
 ## Requirements

@@ -31,7 +31,7 @@ FORGE_USER = "root"
 FORGE_SSH_PORT = 22
 
 # Dashboard deployment paths
-DASHBOARD_DIR = "/home/exedev/.openclaw/workspace/tools/squad-dashboard-v2"
+DASHBOARD_DIR = "/home/exedev/.openclaw/workspace/tools/squad-dashboard"
 DEPLOY_PATH = "/var/www/html/dashboard"
 
 # State file
